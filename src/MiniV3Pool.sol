@@ -2,6 +2,8 @@
 pragma solidity ^0.8.30;
 
 import {IMiniV3MintCallback} from "./interface/IMiniV3MintCallback.sol";
+import {FullMath} from "./libraries/FullMath.sol";
+import {TickMath} from "./libraries/TickMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MiniV3Pool {
@@ -49,24 +51,42 @@ contract MiniV3Pool {
         emit Initialize(_startingSqrtPriceX96, _startingTick);
     }
 
-    function _calcAmount0Delta(uint160 sqrtRatioAX96, uint160 sqrtRatioBX96, uint128 liquidity)
+    function _calcAmount0Delta(uint160 sqrtRatioAX96, uint160 sqrtRatioBX96, uint128 _liquidity)
         internal
         pure
         returns (uint256 amount0)
     {
-        // TODO: реализация формулы Δx = L * (1/√P_A - 1/√P_B) с учетом X96
+        if (sqrtRatioAX96 > sqrtRatioBX96) {
+            (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
+        }
+
+        uint256 numerator1 = uint256(_liquidity) << 96;
+
+        uint256 numerator2 = sqrtRatioBX96 - sqrtRatioAX96;
+
+        uint256 step1 = FullMath.mulDiv(numerator1, numerator2, sqrtRatioBX96);
+
+        amount0 = step1 / sqrtRatioAX96;
     }
 
-    function _calcAmount1Delta(uint160 sqrtRatioAX96, uint160 sqrtRatioBX96, uint128 liquidity)
+    function _calcAmount1Delta(uint160 sqrtRatioAX96, uint160 sqrtRatioBX96, uint128 _liquidity)
         internal
         pure
         returns (uint256 amount1)
     {
-        // TODO: реализация формулы Δy = L * (√P_B - √P_A) с учетом X96
+        if (sqrtRatioAX96 > sqrtRatioBX96) {
+            (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
+        }
+
+        amount1 = FullMath.mulDiv(
+            _liquidity,
+            sqrtRatioBX96 - sqrtRatioAX96,
+            1 << 96
+        );
     }
 
     function _getSqrtRatioAtTick(int24 tick) internal pure returns (uint160 sqrtPriceX96) {
-        // TODO: реализация конвертации тика в sqrtPriceX96
+        sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
     }
 
     function mint(address owner, int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data)
@@ -81,28 +101,30 @@ contract MiniV3Pool {
         Position storage position = positions[positionKey];
         position.liquidity += amount;
 
-        TickInfo storage updateTickLower = ticks[tickLower];
-        updateTickLower.deltaLiquidity += int128(amount);
-        updateTickLower.initialized = true;
+        TickInfo storage updateLowerTick = ticks[tickLower];
+        updateLowerTick.deltaLiquidity += int128(amount);
+        updateLowerTick.initialized = true;
 
-        TickInfo storage updateTickUpper = ticks[tickUpper];
-        updateTickUpper.deltaLiquidity -= int128(amount);
-        updateTickUpper.initialized = true;
+        TickInfo storage updateUpperTick = ticks[tickUpper];
+        updateUpperTick.deltaLiquidity -= int128(amount);
+        updateUpperTick.initialized = true;
 
-        Slot0 memory _slot0 = slot0;
+        {
+            Slot0 memory _slot0 = slot0;
 
-        uint160 sqrtRatioAX96 = _getSqrtRatioAtTick(tickLower);
-        uint160 sqrtRatioBX96 = _getSqrtRatioAtTick(tickUpper);
+            uint160 sqrtRatioAX96 = _getSqrtRatioAtTick(tickLower);
+            uint160 sqrtRatioBX96 = _getSqrtRatioAtTick(tickUpper);
 
-        if (_slot0.tick < tickLower) {
-            amount0 = _calcAmount0Delta(sqrtRatioAX96, sqrtRatioBX96, amount);
-        } else if (_slot0.tick >= tickUpper) {
-            amount1 = _calcAmount1Delta(sqrtRatioAX96, sqrtRatioBX96, amount);
-        } else {
-            amount0 = _calcAmount0Delta(_slot0.sqrtPriceX96, sqrtRatioBX96, amount);
-            amount1 = _calcAmount1Delta(sqrtRatioAX96, _slot0.sqrtPriceX96, amount);
+            if (_slot0.tick < tickLower) {
+                amount0 = _calcAmount0Delta(sqrtRatioAX96, sqrtRatioBX96, amount);
+            } else if (_slot0.tick >= tickUpper) {
+                amount1 = _calcAmount1Delta(sqrtRatioAX96, sqrtRatioBX96, amount);
+            } else {
+                amount0 = _calcAmount0Delta(_slot0.sqrtPriceX96, sqrtRatioBX96, amount);
+                amount1 = _calcAmount1Delta(sqrtRatioAX96, _slot0.sqrtPriceX96, amount);
 
-            liquidity += amount;
+                liquidity += amount;
+            }
         }
 
         uint256 balance0Before;
