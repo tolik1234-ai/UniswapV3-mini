@@ -245,10 +245,6 @@ contract MiniV3Pool {
                 state.sqrtPriceX96, step.sqrtPriceNextX96, _liquidity, state.amountSpecifiedRemaining, zeroForOne
             );
 
-            (state.sqrtPriceX96, step.amountIn, step.amountOut) = _computeSwapStep(
-                state.sqrtPriceX96, step.sqrtPriceNextX96, _liquidity, state.amountSpecifiedRemaining, zeroForOne
-            );
-
             state.amountSpecifiedRemaining -= step.amountIn;
             state.amountCalculated += step.amountOut;
 
@@ -269,9 +265,9 @@ contract MiniV3Pool {
             } else {
                 state.tick = TickMath.getTickAtSqrtRatio(state.sqrtPriceX96);
             }
-            liquidity = _liquidity;
         }
 
+        liquidity = _liquidity;
         slot0 = Slot0({sqrtPriceX96: state.sqrtPriceX96, tick: state.tick});
 
         if (zeroForOne == true) {
