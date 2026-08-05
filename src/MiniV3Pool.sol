@@ -156,7 +156,25 @@ contract MiniV3Pool {
         view
         returns (int24 nextTick, bool initialized)
     {
-        // TODO: Заглушка. В реальном V3 здесь идет побитовый поиск по маппингу tickBitmap.
+        if (zeroForOne) {
+            int24 current = tick;
+            while (current >= TickMath.MIN_TICK) {
+                if (ticks[current].initialized) {
+                    return (current, true);
+                }
+                current--;
+            }
+            return (TickMath.MIN_TICK, false);
+        } else {
+            int24 current = tick + 1;
+            while (current <= TickMath.MAX_TICK) {
+                if (ticks[current].initialized) {
+                    return (current, true);
+                }
+                current++;
+            }
+            return (TickMath.MAX_TICK, false);
+        }
     }
 
     function mint(address owner, int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data)
